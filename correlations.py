@@ -308,7 +308,95 @@ def calculate_social_media_score_loyalty_correlations():
     for target_name, target_value in target_list.items():
         determine_and_write_loyalty_correlations(combined, target_name, target_value)
 
-    print(combined)
+
+def get_survey_row_data(data, level, column_name, ID, target_social_media_score):
+    level_data = data[data[column_name] == ID]
+
+    social_media_score = level_data[target_social_media_score]
+    survey_scores = level_data['NPSScore']
+
+    row = {'Level': level, 'ID': ID}
+
+    number_of_days = 3
+
+    for offset in range(number_of_days, -1, -1):
+        survey_scores = survey_scores.shift(periods=-1, fill_value=np.nan)
+        survey_scores = survey_scores.dropna()
+        correlation = social_media_score.corr(survey_scores, method='pearson')
+        row[str(number_of_days - offset)] = correlation
+
+    return row
+
+
+
+def determine_and_write_survey_correlations(combined, target_name, target_value):
+    rows = []
+
+    regions = combined['Region'].unique()
+    markets = combined['Market'].unique()
+    states = combined['State'].unique()
+    cities = combined['City'].unique()
+    store_ids = combined['StoreId'].unique()
+
+    for region in regions:
+        rows.append(get_survey_row_data(combined, 'Region', 'Region', region, target_value))
+
+    for market in markets:
+        rows.append(get_survey_row_data(combined, 'Market', 'Market', market, target_value))
+
+    for state in states:
+        rows.append(get_survey_row_data(combined, 'State', 'State', state, target_value))
+
+    for city in cities:
+        rows.append(get_survey_row_data(combined, 'City', 'City', city, target_value))
+
+    for store_id in store_ids:
+        rows.append(get_survey_row_data(combined, 'Store', 'StoreId', store_id, target_value))
+
+    df = pd.DataFrame(rows)
+
+    df.to_csv('output/correlations_between_media({})_and_survey_results.csv'.format(target_name), index=False)
+
+
+def calculate_social_media_score_survey_scores_correlations():
+    social_media_scores = pd.read_csv('data/social_media_activity_scores.csv')
+    social_media_scores['Date'] = pd.to_datetime(social_media_scores['Date'])
+    social_media_scores['month'] = social_media_scores['Date'].dt.month
+    social_media_scores['year'] = social_media_scores['Date'].dt.year
+    social_media_scores = social_media_scores.drop(columns=['Date'])
+    social_media_scores_aggregated = social_media_scores.groupby(['year', 'month'], as_index=False).sum()
+
+    survey_scores = pd.read_excel('data/nps.xlsx')
+    survey_scores = survey_scores.rename(columns={'Month': 'month', 'Year': 'year'})
+    survey_scores_aggregated = survey_scores.groupby(['year', 'month', 'StoreId'], as_index=False).sum()
+
+    stores = pd.read_excel('data/stores.xlsx')
+
+    combined = pd.merge(
+        survey_scores_aggregated,
+        stores,
+        how='inner',
+        on='StoreId'
+    )
+
+    combined = pd.merge(
+        combined,
+        social_media_scores_aggregated,
+        how='inner',
+        on=['year', 'month']
+    )
+
+    combined = combined.dropna()
+
+    target_list = {
+        'Posts': 'Social Medial Activity Score',
+        'Weighted Posts': 'Weighted Social Medial Activity Score',
+        'Engagement Scores': 'Engagement Scores',
+        'Awareness': 'Awareness'
+    }
+
+    for target_name, target_value in target_list.items():
+        determine_and_write_survey_correlations(combined, target_name, target_value)
 
 
 if __name__ == '__main__':
